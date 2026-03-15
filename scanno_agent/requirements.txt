@@ -1,0 +1,28 @@
+# ─── 核心依赖 ────────────────────────────────────────────────────────────────
+# PDF 解析
+PyMuPDF>=1.23.0
+
+# 向量 Embedding（支持 BGE-M3 中英双语）
+sentence-transformers>=2.7.0
+FlagEmbedding>=1.2.5          # BGE Reranker v2
+
+# 向量数据库（本地持久化）
+chromadb>=0.5.0
+
+# LLM 调用（OpenAI 兼容接口）
+openai>=1.30.0
+
+# HTTP 请求（爬虫 + API）
+requests>=2.31.0
+
+# 数值计算
+numpy>=1.24.0
+torch>=2.1.0                  # CPU/GPU embedding，可换 torch-cpu
+
+# ─── 可选加速 ────────────────────────────────────────────────────────────────
+# accelerate>=0.27.0           # transformers 大模型加速
+# faiss-cpu>=1.7.4             # 换用 FAISS 向量库时需要
+
+# ─── 生物信息（可选，用于结果后处理）───────────────────────────────────────
+# biopython>=1.83              # PubMed/NCBI 接口增强
+# gprofiler-official>=1.0.0   # g:Profiler GO 富集分析
