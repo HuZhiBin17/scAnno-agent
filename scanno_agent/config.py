@@ -4,6 +4,10 @@
 from __future__ import annotations
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# 加载 .env 环境变量
+load_dotenv()
 
 # ─── 目录结构 ─────────────────────────────────────────────────────────────────
 ROOT_DIR        = Path(__file__).parent

@@ -140,11 +140,4 @@ python run_pipeline.py --annotate --no-agent
 | `annotation_agent.py` | ReAct 自动化 Agent | ReAct, GO/KEGG API, 多工具调用 |
 | `run_pipeline.py` | 一键运行入口 | argparse, 全流程编排 |
 
-## 技术亮点（简历要点）
 
-1. **两阶段检索**：向量召回（BGE-M3, top-20）→ Cross-Encoder 精排（BGE-Reranker-v2-m3, top-5），召回率↑ 精确率↑
-2. **Query 扩展**：单细胞领域同义词映射（T cell ↔ CD3+/T lymphocyte），减少漏召
-3. **Context-Enriched Chunking**：每个 chunk 注入 Paper Title + Section 前缀，embedding 语义更准确
-4. **Section 感知切片**：Abstract/Results/Discussion 细切，Methods/Supplementary 粗切，降噪
-5. **ReAct Agent + 多工具**：LLM 自主调用 GO/KEGG API 进行富集验证，形成闭环
-6. **结构化 JSON 输出**：cell_type + confidence + evidence，可直接集成到 Scanpy AnnData 注释流程
