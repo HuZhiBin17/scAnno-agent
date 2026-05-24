@@ -50,7 +50,7 @@ SEPARATORS      = ["\n\n", "\n", "。", ". ", " ", ""]
 # 推荐使用 BAAI/bge-m3（中英双语，2048 token 上下文）
 EMBED_MODEL     = os.getenv("EMBED_MODEL", "BAAI/bge-m3")
 EMBED_BATCH     = 32
-EMBED_DEVICE    = "cuda"      # 无 GPU 则改 "cpu"
+EMBED_DEVICE    = os.getenv("EMBED_DEVICE", "cuda")      # 无 GPU 则改 "cpu"
 
 # ─── 向量库（ChromaDB 本地持久化）────────────────────────────────────────────
 CHROMA_COLLECTION = "singlecell_papers"
@@ -66,9 +66,100 @@ RETRIEVE_TOP_N  = 20          # 初步向量检索条数，再 rerank 缩减到 
 LLM_PROVIDER    = os.getenv("LLM_PROVIDER", "openai")       # openai | deepseek | zhipu
 OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-LLM_MODEL       = os.getenv("LLM_MODEL", "gpt-4.1-mini")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+LLM_MODEL       = os.getenv("LLM_MODEL", "")
 LLM_TEMPERATURE = 0.1
-LLM_MAX_TOKENS  = 1024
+LLM_MAX_TOKENS  = int(os.getenv("LLM_MAX_TOKENS", "2048"))
+
+
+def _is_truthy(value: str) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+HF_HUB_DIR = Path(os.getenv("HF_HOME", str(Path.home() / ".cache" / "huggingface"))) / "hub"
+HF_AUTO_LOCAL_ONLY = _is_truthy(os.getenv("HF_AUTO_LOCAL_ONLY", "1"))
+
+
+def resolve_local_model_path(model_id: str) -> str:
+    """
+    从 HuggingFace 本地缓存中解析模型快照目录。
+    若不存在可用缓存，返回空字符串。
+    """
+    if not model_id or "/" not in model_id:
+        return ""
+
+    cache_dir = HF_HUB_DIR / f"models--{model_id.replace('/', '--')}"
+    snapshots_dir = cache_dir / "snapshots"
+    if not snapshots_dir.exists():
+        return ""
+
+    # 优先 refs/main 指向的快照
+    ref_main = cache_dir / "refs" / "main"
+    if ref_main.exists():
+        revision = ref_main.read_text(encoding="utf-8").strip()
+        target = snapshots_dir / revision
+        if target.exists():
+            return str(target)
+
+    # 回退：取最近修改的快照目录
+    snapshots = [p for p in snapshots_dir.iterdir() if p.is_dir()]
+    if not snapshots:
+        return ""
+    snapshots.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return str(snapshots[0])
+
+
+def _normalize_openai_base_url(url: str) -> str:
+    """
+    将 OpenAI 兼容地址规范化为包含 /v1 的形式。
+    例如：
+    - https://api.deepseek.com -> https://api.deepseek.com/v1
+    - https://api.deepseek.com/v1 -> 保持不变
+    """
+    base = (url or "").strip().rstrip("/")
+    if not base:
+        return base
+    if base.endswith("/v1"):
+        return base
+    if base.endswith("/anthropic"):
+        return base
+    return f"{base}/v1"
+
+
+def get_llm_runtime_config() -> dict[str, str]:
+    """
+    解析当前运行时的 LLM 连接配置，统一返回 provider/api_key/base_url/model。
+    支持：
+    - openai（默认）
+    - deepseek（可选）
+    """
+    provider = (LLM_PROVIDER or "openai").strip().lower()
+
+    if provider == "deepseek":
+        return {
+            "provider": "deepseek",
+            "api_key": DEEPSEEK_API_KEY,
+            "base_url": _normalize_openai_base_url(DEEPSEEK_BASE_URL),
+            "model": LLM_MODEL or "deepseek-v4-flash",
+        }
+
+    # 默认走 OpenAI 兼容接口
+    return {
+        "provider": "openai",
+        "api_key": OPENAI_API_KEY,
+        "base_url": _normalize_openai_base_url(OPENAI_BASE_URL),
+        "model": LLM_MODEL or "gpt-4.1-mini",
+    }
 
 # ─── Agent ───────────────────────────────────────────────────────────────────
 MAX_AGENT_STEPS = 5           # ReAct 最大循环轮次
+# Agent memory / tool runtime
+AGENT_MEMORY_ENABLED = _is_truthy(os.getenv("AGENT_MEMORY_ENABLED", "true"))
+AGENT_MEMORY_DB = os.getenv("AGENT_MEMORY_DB", str(RESULTS_DIR / "agent_memory.sqlite"))
+AGENT_CACHE_ENABLED = _is_truthy(os.getenv("AGENT_CACHE_ENABLED", "true"))
+AGENT_REUSE_EXACT_MATCH = _is_truthy(os.getenv("AGENT_REUSE_EXACT_MATCH", "true"))
+AGENT_SIMILARITY_THRESHOLD = float(os.getenv("AGENT_SIMILARITY_THRESHOLD", "0.75"))
+AGENT_TOOL_BACKEND = os.getenv("AGENT_TOOL_BACKEND", "mcp").strip().lower()
+MCP_SERVER_MODE = os.getenv("MCP_SERVER_MODE", "stdio").strip().lower()
+MCP_TOOL_TIMEOUT_SECONDS = int(os.getenv("MCP_TOOL_TIMEOUT_SECONDS", "60"))

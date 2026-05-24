@@ -18,10 +18,11 @@ from __future__ import annotations
 import json
 import argparse
 import logging
+from typing import Any
 from pathlib import Path
 from datetime import datetime
 
-from config import RESULTS_DIR
+from config import RESULTS_DIR  # pyright: ignore[reportImplicitRelativeImport]
 
 log = logging.getLogger(__name__)
 logging.basicConfig(
@@ -61,6 +62,28 @@ EXAMPLE_CLUSTERS = [
 ]
 
 
+def normalize_confidence(value: object) -> float:
+    """将模型返回的 confidence 统一转换为 0~1 浮点数。"""
+    if isinstance(value, (int, float)):
+        return max(0.0, min(1.0, float(value)))
+
+    if isinstance(value, str):
+        s = value.strip().lower()
+        level_map = {
+            "high": 0.85,
+            "medium": 0.60,
+            "low": 0.30,
+        }
+        if s in level_map:
+            return level_map[s]
+        try:
+            return max(0.0, min(1.0, float(s)))
+        except ValueError:
+            pass
+
+    return 0.0
+
+
 def step_crawl():
     log.info("=" * 50 + " STEP 1: CRAWL " + "=" * 50)
     import importlib
@@ -89,14 +112,23 @@ def step_index():
     embedding_indexer.build_index()
 
 
-def step_annotate(clusters: list[dict], use_agent: bool = True):
+def step_annotate(
+    clusters: list[dict[str, Any]],
+    use_agent: bool = True,
+    agent_backend: str | None = None,
+    memory: str = "env",
+):
     log.info("=" * 50 + " STEP 5: ANNOTATE " + "=" * 50)
     results = []
 
     if use_agent:
         import importlib
         annotation_agent = importlib.import_module("annotation_agent")
-        agent = annotation_agent.SingleCellAgent()
+        memory_enabled = None if memory == "env" else memory == "on"
+        agent = annotation_agent.SingleCellAgent(
+            tool_backend=agent_backend,
+            memory_enabled=memory_enabled,
+        )
         for cluster in clusters:
             log.info(f"Agent annotating {cluster['cluster_id']}...")
             result = agent.run(cluster)
@@ -121,7 +153,8 @@ def step_annotate(clusters: list[dict], use_agent: bool = True):
         cid        = r.get("cluster_id", "?")
         cell_type  = r.get("cell_type", "Unknown")
         subtype    = r.get("subtype") or ""
-        confidence = r.get("confidence", 0)
+        confidence = normalize_confidence(r.get("confidence", 0))
+        r["confidence"] = confidence
         label = f"{cell_type}" + (f" ({subtype})" if subtype else "")
         bar = "█" * int(confidence * 20) + "░" * (20 - int(confidence * 20))
         print(f"  {cid:<15} {label:<35} [{bar}] {confidence:.2f}")
@@ -136,6 +169,10 @@ def main():
     parser.add_argument("--annotate",  action="store_true", help="仅运行注释步骤")
     parser.add_argument("--input",     type=str, default=None, help="簇信息 JSON 文件路径")
     parser.add_argument("--no-agent",  action="store_true", help="使用简单 RAG 而非 Agent")
+    parser.add_argument("--agent-backend", choices=["local", "mcp"], default=None,
+                        help="Agent tool backend: local or mcp")
+    parser.add_argument("--memory", choices=["env", "on", "off"], default="env",
+                        help="Agent memory mode")
     args = parser.parse_args()
 
     # 加载输入簇信息
@@ -149,7 +186,12 @@ def main():
         step_parse()
         step_chunk()
         step_index()
-        step_annotate(clusters, use_agent=not args.no_agent)
+        step_annotate(
+            clusters,
+            use_agent=not args.no_agent,
+            agent_backend=args.agent_backend,
+            memory=args.memory,
+        )
 
     elif args.step == "crawl":
         step_crawl()
@@ -160,7 +202,12 @@ def main():
     elif args.step == "index":
         step_index()
     elif args.annotate:
-        step_annotate(clusters, use_agent=not args.no_agent)
+        step_annotate(
+            clusters,
+            use_agent=not args.no_agent,
+            agent_backend=args.agent_backend,
+            memory=args.memory,
+        )
     else:
         parser.print_help()
 

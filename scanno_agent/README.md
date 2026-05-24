@@ -94,9 +94,22 @@ pip install torch --index-url https://download.pytorch.org/whl/cu121
 ### 2. 配置环境变量
 ```bash
 export PUBMED_EMAIL="your@email.com"
+
+# 默认：OpenAI
+export LLM_PROVIDER="openai"
 export OPENAI_API_KEY="sk-..."
-export OPENAI_BASE_URL="https://api.openai.com/v1"   # DeepSeek: https://api.deepseek.com/v1
-export LLM_MODEL="gpt-4o-mini"                       # DeepSeek: deepseek-chat
+export OPENAI_BASE_URL="https://api.openai.com/v1"
+export LLM_MODEL="gpt-4o-mini"
+
+# 可选：DeepSeek（OpenAI 兼容接口）
+# export LLM_PROVIDER="deepseek"
+# export DEEPSEEK_API_KEY="sk-..."
+# export DEEPSEEK_BASE_URL="https://api.deepseek.com"
+# export LLM_MODEL="deepseek-v4-flash"   # 也可选: deepseek-v4-pro
+#
+# 注意：
+# - deepseek-chat 与 deepseek-reasoner 预计于 2026/07/24 弃用
+# - Anthropic 兼容入口为 https://api.deepseek.com/anthropic（当前项目未接入 Anthropic SDK）
 ```
 
 ### 3. 运行完整 Pipeline

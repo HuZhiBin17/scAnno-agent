@@ -5,12 +5,18 @@ PyMuPDF>=1.23.0
 # 向量 Embedding（支持 BGE-M3 中英双语）
 sentence-transformers>=2.7.0
 FlagEmbedding>=1.2.5          # BGE Reranker v2
+transformers==4.46.3          # Compatible with current BGE reranker stack
+tokenizers==0.20.3
 
 # 向量数据库（本地持久化）
 chromadb>=0.5.0
 
 # LLM 调用（OpenAI 兼容接口）
 openai>=1.30.0
+python-dotenv>=1.0.0
+mcp>=1.0.0
+jsonschema>=4.0.0
+httpx[socks]>=0.28.0
 
 # HTTP 请求（爬虫 + API）
 requests>=2.31.0

@@ -22,11 +22,7 @@ from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 import torch
 
-from config import (
-    CHUNKS_DIR, INDEX_DIR,
-    EMBED_MODEL, EMBED_BATCH, EMBED_DEVICE,
-    CHROMA_COLLECTION,
-)
+from config import CHUNKS_DIR, INDEX_DIR, EMBED_MODEL, EMBED_BATCH, EMBED_DEVICE, CHROMA_COLLECTION, HF_AUTO_LOCAL_ONLY, resolve_local_model_path  # pyright: ignore[reportImplicitRelativeImport]
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -35,7 +31,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 # ─── 全局单例（避免重复加载模型）─────────────────────────────────────────────
 
 _embed_model: Optional[SentenceTransformer] = None
-_chroma_client: Optional[chromadb.PersistentClient] = None
+_chroma_client = None
 _collection = None
 
 
@@ -43,8 +39,27 @@ def get_embed_model() -> SentenceTransformer:
     global _embed_model
     if _embed_model is None:
         device = EMBED_DEVICE if torch.cuda.is_available() else "cpu"
-        log.info(f"加载 Embedding 模型 {EMBED_MODEL} on {device}")
-        _embed_model = SentenceTransformer(EMBED_MODEL, device=device)
+        model_source = EMBED_MODEL
+        local_files_only = False
+
+        if HF_AUTO_LOCAL_ONLY:
+            local_path = resolve_local_model_path(EMBED_MODEL)
+            if local_path:
+                model_source = local_path
+                local_files_only = True
+                log.info(f"检测到本地缓存，离线加载 Embedding: {EMBED_MODEL} -> {local_path}")
+            else:
+                log.warning(
+                    f"未找到 {EMBED_MODEL} 的本地缓存，可能需要联网下载。"
+                    "如当前网络不可用，请先在可联网环境预下载模型。"
+                )
+
+        log.info(f"加载 Embedding 模型 {model_source} on {device}")
+        _embed_model = SentenceTransformer(
+            model_source,
+            device=device,
+            local_files_only=local_files_only,
+        )
     return _embed_model
 
 
@@ -55,6 +70,7 @@ def get_chroma_collection():
             path=str(INDEX_DIR),
             settings=Settings(anonymized_telemetry=False),
         )
+        assert _chroma_client is not None
         # cosine 相似度：先 normalize embedding 再用内积
         _collection = _chroma_client.get_or_create_collection(
             name=CHROMA_COLLECTION,
@@ -133,7 +149,7 @@ def build_index():
 
         embeddings = embed_texts(texts)
 
-        collection.add(
+        collection.add(  # pyright: ignore[reportArgumentType]
             ids=ids,
             documents=texts,
             embeddings=embeddings,

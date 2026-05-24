@@ -20,8 +20,8 @@ from FlagEmbedding import FlagReranker
 
 from config import (
     RERANK_MODEL, RERANK_TOP_K, RETRIEVE_TOP_N,
-    EMBED_DEVICE,
-)
+    EMBED_DEVICE, HF_AUTO_LOCAL_ONLY, resolve_local_model_path,
+)  # pyright: ignore[reportImplicitRelativeImport]
 from embedding_indexer import get_embed_model, get_chroma_collection, embed_texts
 
 log = logging.getLogger(__name__)
@@ -83,9 +83,25 @@ _reranker: Optional[FlagReranker] = None
 def get_reranker() -> FlagReranker:
     global _reranker
     if _reranker is None:
-        log.info(f"加载 Reranker {RERANK_MODEL}")
+        model_source = RERANK_MODEL
+        if HF_AUTO_LOCAL_ONLY:
+            local_path = resolve_local_model_path(RERANK_MODEL)
+            if local_path:
+                model_source = local_path
+                log.info(f"检测到本地缓存，离线加载 Reranker: {RERANK_MODEL} -> {local_path}")
+            else:
+                log.warning(
+                    f"未找到 {RERANK_MODEL} 的本地缓存，可能需要联网下载。"
+                    "如当前网络不可用，请先在可联网环境预下载模型。"
+                )
+
+        log.info(f"加载 Reranker {model_source}")
         device = "cuda" if EMBED_DEVICE == "cuda" else "cpu"
-        _reranker = FlagReranker(RERANK_MODEL, use_fp16=True, device=device)
+        _reranker = FlagReranker(
+            model_source,
+            use_fp16=(device == "cuda"),
+            device=device,
+        )
     return _reranker
 
 

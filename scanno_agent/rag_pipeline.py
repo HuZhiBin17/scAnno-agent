@@ -11,16 +11,13 @@ from __future__ import annotations
 import re
 import json
 import logging
-from typing import Optional
+from typing import Any
 import time
 from openai import OpenAI
 import openai
 
-from config import (
-    LLM_MODEL, LLM_TEMPERATURE, LLM_MAX_TOKENS,
-    OPENAI_API_KEY, OPENAI_BASE_URL,
-)
-from retriever_reranker import SingleCellRetriever, RetrievedChunk
+from config import LLM_MODEL, LLM_TEMPERATURE, LLM_MAX_TOKENS, get_llm_runtime_config  # pyright: ignore[reportImplicitRelativeImport]
+from retriever_reranker import SingleCellRetriever, RetrievedChunk  # pyright: ignore[reportImplicitRelativeImport]
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -74,21 +71,43 @@ Return ONLY a valid JSON object as specified.
 # ─── LLM 客户端 ───────────────────────────────────────────────────────────────
 
 def get_llm_client() -> OpenAI:
-    # 尽可能模拟 testAPI.py 的初始化方式
-    if OPENAI_BASE_URL and "api.openai.com" not in OPENAI_BASE_URL:
-        return OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
-    return OpenAI(api_key=OPENAI_API_KEY)
+    runtime = get_llm_runtime_config()
+    api_key = runtime["api_key"]
+    base_url = runtime["base_url"]
+    provider = runtime["provider"]
+
+    if not api_key:
+        raise ValueError(
+            f"{provider} API key 未配置。请设置环境变量："
+            f"{'DEEPSEEK_API_KEY' if provider == 'deepseek' else 'OPENAI_API_KEY'}"
+        )
+
+    return OpenAI(api_key=api_key, base_url=base_url)
 
 
 def call_llm(system: str, user: str, max_retries: int = 3) -> str:
     """调用 LLM，带重试机制以应对不稳定的网络环境"""
     client = get_llm_client()
+    runtime = get_llm_runtime_config()
+    model_name = runtime["model"] or LLM_MODEL
     prompt = f"{system}\n\n{user}"
     
     for attempt in range(max_retries):
         try:
+            if runtime["provider"] == "deepseek":
+                resp = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    temperature=LLM_TEMPERATURE,
+                    max_tokens=LLM_MAX_TOKENS,
+                )
+                return (resp.choices[0].message.content or "").strip()
+
             resp = client.responses.create(
-                model=LLM_MODEL,
+                model=model_name,
                 input=prompt,
                 store=True,
             )
@@ -109,6 +128,8 @@ def call_llm(system: str, user: str, max_retries: int = 3) -> str:
         except Exception as e:
             log.error(f"LLM 发生未知错误: {e}")
             raise e
+
+    raise RuntimeError("LLM 调用失败：超过最大重试次数。")
 
 
 # ─── RAG Pipeline ─────────────────────────────────────────────────────────────
@@ -147,7 +168,7 @@ class SingleCellRAGPipeline:
         technology: str = "scRNA-seq",
         extra_info: str = "",
         cluster_id: str = "",
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         主入口：注释单个细胞簇
 
@@ -185,11 +206,24 @@ class SingleCellRAGPipeline:
         )
 
         # Stage 3: 调用 LLM
-        log.info(f"Calling LLM ({LLM_MODEL})...")
+        runtime = get_llm_runtime_config()
+        log.info(f"Calling LLM ({runtime['provider']} / {runtime['model']})...")
         raw_output = call_llm(SYSTEM_PROMPT, user_prompt)
 
         # Stage 4: 解析 JSON 输出
         result = self._parse_output(raw_output)
+        if result.get("cell_type") == "Unknown":
+            log.warning("首次 JSON 解析失败，尝试一次严格 JSON 重试...")
+            repair_prompt = (
+                user_prompt
+                + "\n\nIMPORTANT: Return ONLY one complete valid JSON object. "
+                  "No markdown, no explanation, no trailing text."
+            )
+            raw_output_retry = call_llm(SYSTEM_PROMPT, repair_prompt, max_retries=2)
+            retry_result = self._parse_output(raw_output_retry)
+            if retry_result.get("cell_type") != "Unknown":
+                result = retry_result
+
         result["cluster_id"]        = cluster_id
         result["query_used"]        = query
         result["retrieved_chunks"]  = [
@@ -198,13 +232,59 @@ class SingleCellRAGPipeline:
         ]
         return result
 
-    def _parse_output(self, raw: str) -> dict:
+    def _extract_first_json_object(self, text: str) -> str | None:
+        """从文本中提取第一个完整 JSON 对象字符串。"""
+        start = text.find("{")
+        if start < 0:
+            return None
+
+        depth = 0
+        in_str = False
+        quote_char = ""
+        escaped = False
+
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_str:
+                if escaped:
+                    escaped = False
+                    continue
+                if ch == "\\":
+                    escaped = True
+                    continue
+                if ch == quote_char:
+                    in_str = False
+                continue
+
+            if ch in ("'", '"'):
+                in_str = True
+                quote_char = ch
+                continue
+            if ch == "{":
+                depth += 1
+                continue
+            if ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+                continue
+        return None
+
+    def _parse_output(self, raw: str) -> dict[str, Any]:
         """安全解析 LLM JSON 输出"""
         # 去除可能的 markdown 代码块包裹
         clean = re.sub(r"```(?:json)?\s*", "", raw).strip()
+        clean = re.sub(r"\s*```$", "", clean).strip()
+
         try:
             return json.loads(clean)
         except json.JSONDecodeError as e:
+            extracted = self._extract_first_json_object(clean)
+            if extracted:
+                try:
+                    return json.loads(extracted)
+                except json.JSONDecodeError:
+                    pass
             log.error(f"JSON parse failed: {e}\nRaw: {raw[:200]}")
             return {
                 "cell_type":    "Unknown",
@@ -220,8 +300,8 @@ class SingleCellRAGPipeline:
 
     def annotate_batch(
         self,
-        cluster_list: list[dict],
-    ) -> list[dict]:
+        cluster_list: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         """
         批量注释多个簇
 

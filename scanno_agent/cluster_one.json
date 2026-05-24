@@ -1,0 +1,8 @@
+[
+  {
+    "cluster_id": "cluster_0",
+    "markers": ["CD8A", "CD8B", "GZMB", "GZMK", "PRF1", "PDCD1", "LAG3", "HAVCR2"],
+    "tissue": "lung adenocarcinoma tumor microenvironment",
+    "technology": "scRNA-seq"
+  }
+]

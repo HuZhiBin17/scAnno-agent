@@ -1,0 +1,32 @@
+[
+  {
+    "cluster_id": "cluster_test_01",
+    "markers": ["CD3D", "CD3E", "CD4", "IL2RA", "FOXP3", "CTLA4", "TIGIT", "IKZF2"],
+    "tissue": "lung adenocarcinoma tumor microenvironment",
+    "technology": "scRNA-seq"
+  },
+  {
+    "cluster_id": "cluster_test_02",
+    "markers": ["MS4A1", "CD79A", "CD79B", "MZB1", "JCHAIN", "XBP1", "IGHG1", "SDC1"],
+    "tissue": "breast cancer tumor microenvironment",
+    "technology": "scRNA-seq"
+  },
+  {
+    "cluster_id": "cluster_test_03",
+    "markers": ["LYZ", "CST3", "LST1", "AIF1", "CD68", "MARCO", "APOE", "C1QA"],
+    "tissue": "colorectal cancer tumor microenvironment",
+    "technology": "scRNA-seq"
+  },
+  {
+    "cluster_id": "cluster_test_04",
+    "markers": ["PECAM1", "VWF", "KDR", "FLT1", "CLDN5", "ENG", "ESAM", "RAMP2"],
+    "tissue": "glioblastoma tumor microenvironment",
+    "technology": "scRNA-seq"
+  },
+  {
+    "cluster_id": "cluster_test_05",
+    "markers": ["COL1A1", "COL1A2", "DCN", "LUM", "TAGLN", "ACTA2", "FAP", "PDGFRA"],
+    "tissue": "pancreatic ductal adenocarcinoma tumor microenvironment",
+    "technology": "scRNA-seq"
+  }
+]
